@@ -1,0 +1,17 @@
+# Build and publish outputs
+[Bb]in/
+[Oo]bj/
+[Pp]ublish/
+installer_output/
+
+# Visual Studio & IDE files
+.vs/
+*.user
+*.userosscache
+*.sln.docstates
+*.suo
+
+# Scratch and temporary logs
+scratch/
+.system_generated/
+*.log

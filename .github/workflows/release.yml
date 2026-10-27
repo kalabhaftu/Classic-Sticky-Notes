@@ -1,0 +1,57 @@
+name: Build & Release Installer
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build & Package Windows Installer
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Publish Win-x64 Binaries
+        run: dotnet publish StickyNotes.csproj -c Release -r win-x64 --self-contained false -o publish
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress
+
+      - name: Compile Inno Setup Installer
+        shell: pwsh
+        run: |
+          $isccPath = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $isccPath)) {
+            $isccPath = (Get-Command ISCC.exe -ErrorAction SilentlyContinue)?.Source
+          }
+          if (-not $isccPath) {
+            throw "ISCC compiler not found."
+          }
+          & $isccPath "installer\ClassicStickyNotes.iss"
+          Get-ChildItem -Path "installer_output"
+
+      - name: Upload Installer Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClassicStickyNotes-Installer
+          path: installer_output/*.exe
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: installer_output/ClassicStickyNotes_Setup_v*.exe
+          name: Release ${{ github.ref_name }}
+          generate_release_notes: true
