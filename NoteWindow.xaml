@@ -17,6 +17,93 @@
         PreviewKeyDown="Window_PreviewKeyDown">
 
     <Window.Resources>
+        <!-- Global Fluent Modern ContextMenu Style -->
+        <Style TargetType="{x:Type ContextMenu}">
+            <Setter Property="OverridesDefaultStyle" Value="True"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="HasDropShadow" Value="False"/>
+            <Setter Property="Background" Value="#FAFBFD"/>
+            <Setter Property="BorderBrush" Value="#E2E8F0"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="4"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type ContextMenu}">
+                        <Border x:Name="MenuCard"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="8"
+                                Padding="{TemplateBinding Padding}">
+                            <Border.Effect>
+                                <DropShadowEffect BlurRadius="18" Opacity="0.22" ShadowDepth="4" Direction="270" Color="#000000"/>
+                            </Border.Effect>
+                            <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Global Fluent Modern MenuItem Style -->
+        <Style TargetType="{x:Type MenuItem}">
+            <Setter Property="OverridesDefaultStyle" Value="True"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="Height" Value="32"/>
+            <Setter Property="Foreground" Value="#1E293B"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontFamily" Value="Segoe UI"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type MenuItem}">
+                        <Border x:Name="ItemBorder" CornerRadius="5" Background="Transparent" Padding="8,4" Margin="1,1">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="22"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="MenuItemGestureColumnGroup"/>
+                                </Grid.ColumnDefinitions>
+
+                                <!-- Icon -->
+                                <ContentPresenter Grid.Column="0" x:Name="Icon" ContentSource="Icon" Margin="0,0,6,0" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+
+                                <!-- Header Text -->
+                                <ContentPresenter Grid.Column="1" x:Name="HeaderHost" ContentSource="Header" RecognizesAccessKey="True" VerticalAlignment="Center"/>
+
+                                <!-- Input Gesture / Shortcut Text -->
+                                <TextBlock Grid.Column="2" Text="{TemplateBinding InputGestureText}" Margin="16,0,4,0" Opacity="0.5" FontSize="11" VerticalAlignment="Center" Foreground="{TemplateBinding Foreground}"/>
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="ItemBorder" Property="Background" Value="#1A888888"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.4"/>
+                                <Setter Property="Cursor" Value="Arrow"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Global Modern Separator Style -->
+        <Style TargetType="{x:Type Separator}">
+            <Setter Property="OverridesDefaultStyle" Value="True"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="Height" Value="1"/>
+            <Setter Property="Margin" Value="4,4"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type Separator}">
+                        <Border Background="#E2E8F0" Height="1"/>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <!-- Sleek Thin Scrollbar Style (Applied globally) -->
         <Style TargetType="{x:Type ScrollBar}">
             <Setter Property="OverridesDefaultStyle" Value="True"/>
@@ -57,21 +144,21 @@
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Focusable" Value="False"/>
-            <Setter Property="Padding" Value="4,2"/>
+            <Setter Property="Padding" Value="0"/>
             <Setter Property="Margin" Value="1,0"/>
             <Setter Property="Foreground" Value="{Binding Path=Foreground, RelativeSource={RelativeSource AncestorType=Border}}"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="border" Background="{TemplateBinding Background}" CornerRadius="4" Padding="{TemplateBinding Padding}">
+                        <Border x:Name="border" Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#22000000"/>
+                                <Setter TargetName="border" Property="Background" Value="#20000000"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#38000000"/>
+                                <Setter TargetName="border" Property="Background" Value="#35000000"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -84,12 +171,16 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="border" Background="{TemplateBinding Background}" CornerRadius="4" Padding="{TemplateBinding Padding}">
+                        <Border x:Name="border" Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#E53935"/>
+                                <Setter TargetName="border" Property="Background" Value="#EF4444"/>
+                                <Setter Property="Foreground" Value="White"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#DC2626"/>
                                 <Setter Property="Foreground" Value="White"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
@@ -110,7 +201,7 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="border" Background="{TemplateBinding Background}" CornerRadius="5" Padding="{TemplateBinding Padding}">
+                        <Border x:Name="border" Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
@@ -140,7 +231,7 @@
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
                         <Border x:Name="border" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" 
-                                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="5" Padding="{TemplateBinding Padding}">
+                                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="6" Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
@@ -169,7 +260,7 @@
 
             <Grid x:Name="CardContentGrid" ClipToBounds="True">
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="34"/>  <!-- Header -->
+                    <RowDefinition Height="36"/>  <!-- Header -->
                     <RowDefinition Height="*"/>   <!-- Body (Live Markdown Canvas) -->
                     <RowDefinition Height="22"/>  <!-- Footer -->
                 </Grid.RowDefinitions>
@@ -179,36 +270,36 @@
                     <Grid Margin="6,0,6,0">
                         <!-- Left: New Note -->
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
-                            <Button Style="{StaticResource HeaderBtn}" Width="26" Height="26" Click="NewNote_Click" ToolTip="New Note (Ctrl+N)">
-                                <TextBlock Text="➕" FontSize="12" VerticalAlignment="Center"/>
+                            <Button Style="{StaticResource HeaderBtn}" Width="28" Height="28" Click="NewNote_Click" ToolTip="New Note (Ctrl+N)">
+                                <TextBlock Text="&#xE710;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets, Segoe UI Symbol" FontSize="11" VerticalAlignment="Center" HorizontalAlignment="Center"/>
                             </Button>
                         </StackPanel>
 
                         <!-- Right: Actions & Tools -->
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                             <!-- Always on Top / Pin -->
-                            <Button x:Name="BtnPin" Style="{StaticResource HeaderBtn}" Width="26" Height="26" Click="Pin_Click" ToolTip="Always on Top (Ctrl+P)">
-                                <TextBlock x:Name="TxtPinIcon" Text="📌" FontSize="11" Opacity="0.35"/>
+                            <Button x:Name="BtnPin" Style="{StaticResource HeaderBtn}" Width="28" Height="28" Click="Pin_Click" ToolTip="Always on Top (Ctrl+P)">
+                                <TextBlock x:Name="TxtPinIcon" Text="&#xE718;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets, Segoe UI Symbol" FontSize="11" Opacity="0.35" VerticalAlignment="Center" HorizontalAlignment="Center"/>
                             </Button>
 
                             <!-- Color Palette -->
-                            <Button Style="{StaticResource HeaderBtn}" Width="26" Height="26" Click="Palette_Click" ToolTip="Note Color">
-                                <TextBlock Text="🎨" FontSize="12"/>
+                            <Button Style="{StaticResource HeaderBtn}" Width="28" Height="28" Click="Palette_Click" ToolTip="Note Color">
+                                <TextBlock Text="&#xE790;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets, Segoe UI Symbol" FontSize="11" VerticalAlignment="Center" HorizontalAlignment="Center"/>
                             </Button>
 
                             <!-- Font Selector -->
-                            <Button Style="{StaticResource HeaderBtn}" Width="26" Height="26" Click="Font_Click" ToolTip="Font &amp; Size">
-                                <TextBlock Text="🔤" FontSize="12"/>
+                            <Button Style="{StaticResource HeaderBtn}" Width="28" Height="28" Click="Font_Click" ToolTip="Font &amp; Size">
+                                <TextBlock Text="&#xE8D2;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets, Segoe UI Symbol" FontSize="11" VerticalAlignment="Center" HorizontalAlignment="Center"/>
                             </Button>
 
                             <!-- More Menu -->
-                            <Button Style="{StaticResource HeaderBtn}" Width="24" Height="26" Click="More_Click" ToolTip="More Options">
-                                <TextBlock Text="⋮" FontSize="13" FontWeight="Bold"/>
+                            <Button Style="{StaticResource HeaderBtn}" Width="26" Height="28" Click="More_Click" ToolTip="More Options">
+                                <TextBlock Text="&#xE712;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets, Segoe UI Symbol" FontSize="12" VerticalAlignment="Center" HorizontalAlignment="Center"/>
                             </Button>
 
                             <!-- Close Button -->
-                            <Button Style="{StaticResource DangerHeaderBtn}" Width="26" Height="26" Click="Close_Click" ToolTip="Close Note">
-                                <TextBlock Text="✕" FontSize="11" FontWeight="Bold"/>
+                            <Button Style="{StaticResource DangerHeaderBtn}" Width="28" Height="28" Click="Close_Click" ToolTip="Close Note">
+                                <TextBlock Text="&#xE8BB;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets, Segoe UI Symbol" FontSize="9" VerticalAlignment="Center" HorizontalAlignment="Center"/>
                             </Button>
                         </StackPanel>
                     </Grid>
@@ -271,7 +362,7 @@
                         <StackPanel>
                             <!-- Dialog Header with Icon -->
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                                <TextBlock x:Name="TxtDialogIcon" Text="⚠️" FontSize="18" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                                <TextBlock x:Name="TxtDialogIcon" Text="&#xE7BA;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets, Segoe UI Symbol" FontSize="16" Margin="0,0,8,0" VerticalAlignment="Center"/>
                                 <TextBlock x:Name="TxtDialogTitle" Text="Confirm" FontSize="14" FontWeight="Bold" Foreground="#1E293B" VerticalAlignment="Center"/>
                             </StackPanel>
 

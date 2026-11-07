@@ -196,14 +196,22 @@ namespace ClassicStickyNotes
             return menu;
         }
 
-        private MenuItem CreateModernMenuItem(string title, object? icon = null, Action? onClick = null, bool isChecked = false, bool isDanger = false)
+        private MenuItem CreateModernMenuItem(
+            string title, 
+            string? fluentGlyph = null, 
+            UIElement? customIcon = null, 
+            Action? onClick = null, 
+            bool isChecked = false, 
+            bool isDanger = false, 
+            string shortcut = "")
         {
             bool isDark = _note.ColorName == "Charcoal";
             var item = new MenuItem
             {
                 Header = title,
-                Height = 30,
+                Height = 32,
                 Cursor = Cursors.Hand,
+                InputGestureText = shortcut,
                 Foreground = isDanger 
                     ? new SolidColorBrush(Color.FromRgb(239, 68, 68)) 
                     : (isDark ? new SolidColorBrush(Color.FromRgb(241, 245, 249)) : new SolidColorBrush(Color.FromRgb(30, 41, 59))),
@@ -212,15 +220,41 @@ namespace ClassicStickyNotes
                 Margin = new Thickness(0, 1, 0, 1)
             };
 
-            if (icon != null)
+            if (customIcon != null)
             {
-                item.Icon = icon;
+                item.Icon = customIcon;
+            }
+            else if (!string.IsNullOrEmpty(fluentGlyph))
+            {
+                var iconTb = new TextBlock
+                {
+                    Text = fluentGlyph,
+                    FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets, Segoe UI Symbol"),
+                    FontSize = 12,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    Foreground = isDanger 
+                        ? new SolidColorBrush(Color.FromRgb(239, 68, 68)) 
+                        : (isDark ? new SolidColorBrush(Color.FromRgb(203, 213, 225)) : new SolidColorBrush(Color.FromRgb(100, 116, 139)))
+                };
+                item.Icon = iconTb;
             }
 
             if (isChecked)
             {
-                item.Header = $"{title}  ✓";
                 item.FontWeight = FontWeights.SemiBold;
+                if (customIcon == null && string.IsNullOrEmpty(fluentGlyph))
+                {
+                    item.Icon = new TextBlock
+                    {
+                        Text = "\xE73E",
+                        FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets, Segoe UI Symbol"),
+                        FontSize = 11,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        Foreground = new SolidColorBrush(Color.FromRgb(37, 99, 235))
+                    };
+                }
             }
 
             if (onClick != null)
@@ -264,20 +298,22 @@ namespace ClassicStickyNotes
 
                 var swatch = new Border
                 {
-                    Width = 16,
-                    Height = 16,
-                    CornerRadius = new CornerRadius(8),
+                    Width = 14,
+                    Height = 14,
+                    CornerRadius = new CornerRadius(7),
                     Background = theme.BodyBrush,
                     BorderBrush = theme.BorderBrush,
                     BorderThickness = new Thickness(1),
-                    Margin = new Thickness(2, 0, 8, 0)
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
                 };
 
                 bool isSelected = _note.ColorName == colorName;
                 var item = CreateModernMenuItem(
                     theme.DisplayName, 
-                    swatch, 
-                    () => {
+                    fluentGlyph: null, 
+                    customIcon: swatch, 
+                    onClick: () => {
                         ApplyTheme(colorName);
                         PerformSave();
                     }, 
@@ -310,8 +346,9 @@ namespace ClassicStickyNotes
                 bool isSelected = _note.FontFamily == font;
                 var item = CreateModernMenuItem(
                     font, 
-                    null, 
-                    () => {
+                    fluentGlyph: null, 
+                    customIcon: null, 
+                    onClick: () => {
                         ApplyFont(font, _note.FontSize);
                         PerformSave();
                     }, 
@@ -338,8 +375,9 @@ namespace ClassicStickyNotes
                 bool isSelected = Math.Abs(_note.FontSize - size) < 0.5;
                 var item = CreateModernMenuItem(
                     $"{size} pt", 
-                    null, 
-                    () => {
+                    fluentGlyph: null, 
+                    customIcon: null, 
+                    onClick: () => {
                         ApplyFont(_note.FontFamily, size);
                         PerformSave();
                     }, 
@@ -355,20 +393,24 @@ namespace ClassicStickyNotes
         {
             var menu = CreateModernMenu();
 
-            menu.Items.Add(CreateModernMenuItem("📥  Export to Markdown (.md)...", null, () => ExportToMarkdown()));
-            menu.Items.Add(CreateModernMenuItem("📋  Copy All Text", null, () => {
+            menu.Items.Add(CreateModernMenuItem("Undo", "\xE7A7", null, () => _editor?.Undo(), shortcut: "Ctrl+Z"));
+            menu.Items.Add(CreateModernMenuItem("Redo", "\xE7A6", null, () => _editor?.Redo(), shortcut: "Ctrl+Y"));
+            menu.Items.Add(CreateModernSeparator());
+
+            menu.Items.Add(CreateModernMenuItem("Export to Markdown (.md)...", "\xE74E", null, () => ExportToMarkdown()));
+            menu.Items.Add(CreateModernMenuItem("Copy All Text", "\xE8C8", null, () => {
                 if (_editor != null)
                 {
                     Clipboard.SetText(_editor.GetFullDocumentText());
                     TxtFooterStats.Text = "All text copied to clipboard!";
                 }
             }));
-            menu.Items.Add(CreateModernMenuItem("🧹  Clear Note", null, () => {
+            menu.Items.Add(CreateModernMenuItem("Clear Note", "\xE75C", null, () => {
                 ShowModernDialog(
                     "Clear Note",
                     "Are you sure you want to clear all contents of this note?",
                     "Clear Content",
-                    "🧹",
+                    "\xE75C",
                     () => {
                         _editor?.LoadDocument("");
                         PerformSave();
@@ -378,13 +420,13 @@ namespace ClassicStickyNotes
 
             menu.Items.Add(CreateModernSeparator());
 
-            menu.Items.Add(CreateModernMenuItem("📁  Open Storage Folder", null, () => {
+            menu.Items.Add(CreateModernMenuItem("Open Storage Folder", "\xE838", null, () => {
                 try {
                     Process.Start(new ProcessStartInfo("explorer.exe", NoteStorageService.GetStorageFolder()) { UseShellExecute = true });
                 } catch { }
             }));
 
-            menu.Items.Add(CreateModernMenuItem("📄  Open Activity & Error Log", null, () => {
+            menu.Items.Add(CreateModernMenuItem("Open Activity & Error Log", "\xE8A5", null, () => {
                 try {
                     string logPath = Logger.GetLogPath();
                     if (!File.Exists(logPath)) File.WriteAllText(logPath, "No errors logged.\n");
@@ -392,16 +434,16 @@ namespace ClassicStickyNotes
                 } catch { }
             }));
 
-            menu.Items.Add(CreateModernMenuItem("ℹ️  About Classic Sticky Notes", null, () => ShowAboutDialog()));
+            menu.Items.Add(CreateModernMenuItem("About Classic Sticky Notes", "\xE946", null, () => ShowAboutDialog()));
 
             menu.Items.Add(CreateModernSeparator());
 
-            menu.Items.Add(CreateModernMenuItem("🗑  Delete This Note", null, () => {
+            menu.Items.Add(CreateModernMenuItem("Delete This Note", "\xE74D", null, () => {
                 ShowModernDialog(
                     "Delete Note",
                     "Are you sure you want to permanently delete this sticky note?",
                     "Delete Note",
-                    "🗑",
+                    "\xE74D",
                     () => DeleteCurrentNote(),
                     isDanger: true);
             }, isDanger: true));
@@ -418,9 +460,9 @@ namespace ClassicStickyNotes
         {
             ShowModernDialog(
                 "About Classic Sticky Notes",
-                "A lightweight Windows sticky notes app with live inline Markdown preview, free text editing, thin scrollbars, auto-save, and custom themes.\n\n• Live formatting: active line shows code, other lines stay rendered\n• Multi-line selection, copy, and multi-line paste\n• Click checkboxes directly to check them off\n• Enter auto-continues task and bullet lists\n• Ctrl+N: New Note  |  Ctrl+P: Pin Always on Top",
+                "A lightweight Windows sticky notes app with live inline Markdown preview, free text editing, thin scrollbars, auto-save, and custom themes.\n\n• Live formatting: active line shows code, other lines stay rendered\n• Multi-line selection, copy, and multi-line paste\n• Click checkboxes directly to check them off\n• Enter auto-continues task and bullet lists\n• Ctrl+Z: Undo  |  Ctrl+Y: Redo\n• Ctrl+N: New Note  |  Ctrl+P: Pin Always on Top",
                 "Got it",
-                "📌",
+                "\xE946",
                 null,
                 isDanger: false,
                 isAlertOnly: true);
@@ -494,7 +536,7 @@ namespace ClassicStickyNotes
                     "Export Complete",
                     $"Note successfully saved to:\n{Path.GetFileName(dialog.FileName)}",
                     "OK",
-                    "✅",
+                    "\xE73E",
                     null,
                     isDanger: false,
                     isAlertOnly: true);
@@ -512,6 +554,37 @@ namespace ClassicStickyNotes
             {
                 DialogOverlay.Visibility = Visibility.Collapsed;
                 e.Handled = true;
+                return;
+            }
+
+            // Undo: Ctrl+Z & Redo: Ctrl+Shift+Z
+            if (e.Key == Key.Z && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
+            {
+                e.Handled = true;
+                if ((Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift)
+                {
+                    _editor?.Redo();
+                }
+                else
+                {
+                    _editor?.Undo();
+                }
+                return;
+            }
+
+            // Redo: Ctrl+Y
+            if (e.Key == Key.Y && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
+            {
+                e.Handled = true;
+                _editor?.Redo();
+                return;
+            }
+
+            // Select All: Ctrl+A
+            if (e.Key == Key.A && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
+            {
+                e.Handled = true;
+                _editor?.SelectAll();
                 return;
             }
 

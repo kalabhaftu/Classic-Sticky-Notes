@@ -20,6 +20,20 @@ namespace ClassicStickyNotes.Services
         public Border? Container { get; set; }
     }
 
+    public class DocumentSnapshot
+    {
+        public List<string> Lines { get; }
+        public int ActiveLine { get; }
+        public int CaretIndex { get; }
+
+        public DocumentSnapshot(IEnumerable<string> lines, int activeLine, int caretIndex)
+        {
+            Lines = new List<string>(lines);
+            ActiveLine = activeLine;
+            CaretIndex = caretIndex;
+        }
+    }
+
     public class LiveMarkdownEditor
     {
         private readonly ScrollViewer _scrollViewer;
@@ -31,7 +45,15 @@ namespace ClassicStickyNotes.Services
         private bool _isAllSelected = false;
         private int _selectionStartLine = -1;
         private int _selectionEndLine = -1;
-        private int _mouseDragStartLine = -1;
+        private int _dragStartLine = -1;
+        private Point _dragStartPoint;
+        private bool _isMouseDragging = false;
+
+        // Undo / Redo history
+        private readonly Stack<DocumentSnapshot> _undoStack = new Stack<DocumentSnapshot>();
+        private readonly Stack<DocumentSnapshot> _redoStack = new Stack<DocumentSnapshot>();
+        private readonly DispatcherTimer _typingSnapshotTimer;
+        private bool _isTypingDirty = false;
 
         public NoteTheme Theme { get; set; }
         public string FontFamilyName { get; set; } = "Segoe UI";
@@ -45,6 +67,27 @@ namespace ClassicStickyNotes.Services
             _stackPanel = stackPanel;
             Theme = theme;
 
+            // Debounced timer to record typing state for Undo/Redo
+            _typingSnapshotTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(500)
+            };
+            _typingSnapshotTimer.Tick += (s, e) =>
+            {
+                _typingSnapshotTimer.Stop();
+                if (_isTypingDirty)
+                {
+                    _isTypingDirty = false;
+                    PushSnapshot();
+                }
+            };
+
+            // Two-way cross-line mouse drag selection via tunneling events
+            _scrollViewer.PreviewMouseLeftButtonDown += ScrollViewer_PreviewMouseLeftButtonDown;
+            _scrollViewer.PreviewMouseMove += ScrollViewer_PreviewMouseMove;
+            _scrollViewer.PreviewMouseLeftButtonUp += ScrollViewer_PreviewMouseLeftButtonUp;
+            _scrollViewer.PreviewMouseRightButtonUp += ScrollViewer_PreviewMouseRightButtonUp;
+
             // Clicking in the empty area below lines focuses or creates the bottom line
             _scrollViewer.MouseLeftButtonDown += (s, e) =>
             {
@@ -56,6 +99,7 @@ namespace ClassicStickyNotes.Services
 
                         if (_lines.Count == 0)
                         {
+                            PushSnapshot();
                             _lines.Add(new DocumentLine { RawText = "" });
                             RebuildUI();
                             ActivateLine(0, 0);
@@ -66,6 +110,7 @@ namespace ClassicStickyNotes.Services
                             var last = _lines[_lines.Count - 1];
                             if (!string.IsNullOrWhiteSpace(last.RawText))
                             {
+                                PushSnapshot();
                                 _lines.Add(new DocumentLine { RawText = "" });
                                 RebuildUI();
                                 ActivateLine(_lines.Count - 1, 0);
@@ -84,6 +129,305 @@ namespace ClassicStickyNotes.Services
                 }
             };
         }
+
+        // ==========================================
+        // UNDO / REDO HISTORY SYSTEM
+        // ==========================================
+
+        private void PushSnapshot()
+        {
+            try
+            {
+                SyncActiveLineText();
+                int caret = 0;
+                if (_activeLineIndex >= 0 && _activeLineIndex < _lines.Count && _lines[_activeLineIndex].EditBox != null)
+                {
+                    caret = _lines[_activeLineIndex].EditBox!.CaretIndex;
+                }
+
+                var snapshot = new DocumentSnapshot(_lines.Select(l => l.RawText), _activeLineIndex, caret);
+
+                // Don't push duplicate snapshots
+                if (_undoStack.Count > 0)
+                {
+                    var top = _undoStack.Peek();
+                    if (top.ActiveLine == snapshot.ActiveLine &&
+                        top.CaretIndex == snapshot.CaretIndex &&
+                        top.Lines.SequenceEqual(snapshot.Lines))
+                    {
+                        return;
+                    }
+                }
+
+                _undoStack.Push(snapshot);
+                _redoStack.Clear(); // New mutation clears redo history
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError("PushSnapshot", ex);
+            }
+        }
+
+        public void Undo()
+        {
+            try
+            {
+                if (_undoStack.Count == 0) return;
+
+                SyncActiveLineText();
+                int caret = 0;
+                if (_activeLineIndex >= 0 && _activeLineIndex < _lines.Count && _lines[_activeLineIndex].EditBox != null)
+                {
+                    caret = _lines[_activeLineIndex].EditBox!.CaretIndex;
+                }
+
+                // Push current state to redo
+                _redoStack.Push(new DocumentSnapshot(_lines.Select(l => l.RawText), _activeLineIndex, caret));
+
+                // Pop previous state
+                var prev = _undoStack.Pop();
+                RestoreSnapshot(prev);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError("Undo", ex);
+            }
+        }
+
+        public void Redo()
+        {
+            try
+            {
+                if (_redoStack.Count == 0) return;
+
+                SyncActiveLineText();
+                int caret = 0;
+                if (_activeLineIndex >= 0 && _activeLineIndex < _lines.Count && _lines[_activeLineIndex].EditBox != null)
+                {
+                    caret = _lines[_activeLineIndex].EditBox!.CaretIndex;
+                }
+
+                // Push current state to undo
+                _undoStack.Push(new DocumentSnapshot(_lines.Select(l => l.RawText), _activeLineIndex, caret));
+
+                // Pop redo state
+                var next = _redoStack.Pop();
+                RestoreSnapshot(next);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError("Redo", ex);
+            }
+        }
+
+        private void RestoreSnapshot(DocumentSnapshot snap)
+        {
+            _lines.Clear();
+            foreach (var text in snap.Lines)
+            {
+                _lines.Add(new DocumentLine { RawText = text });
+            }
+
+            if (_lines.Count == 0)
+            {
+                _lines.Add(new DocumentLine { RawText = "" });
+            }
+
+            ClearSelection();
+            RebuildUI();
+
+            int targetLine = Math.Clamp(snap.ActiveLine, 0, _lines.Count - 1);
+            ActivateLine(targetLine, snap.CaretIndex);
+            NotifyChanged();
+        }
+
+        // ==========================================
+        // TWO-WAY MOUSE DRAG SELECTION
+        // ==========================================
+
+        private int GetLineIndexFromSource(DependencyObject? source)
+        {
+            while (source != null && source != _stackPanel)
+            {
+                if (source is FrameworkElement fe && fe.Parent == _stackPanel)
+                {
+                    return _stackPanel.Children.IndexOf(fe);
+                }
+                source = (source is Visual) 
+                    ? VisualTreeHelper.GetParent(source) 
+                    : LogicalTreeHelper.GetParent(source);
+            }
+            return -1;
+        }
+
+        private int GetLineAtPoint(Point ptInStackPanel)
+        {
+            if (_lines.Count == 0) return -1;
+            if (ptInStackPanel.Y <= 0) return 0;
+
+            for (int i = 0; i < _lines.Count; i++)
+            {
+                var container = _lines[i].Container;
+                if (container == null) continue;
+                try
+                {
+                    Point rel = container.TranslatePoint(new Point(0, 0), _stackPanel);
+                    double top = rel.Y;
+                    double bottom = top + container.ActualHeight;
+                    if (ptInStackPanel.Y >= top && ptInStackPanel.Y <= bottom)
+                    {
+                        return i;
+                    }
+                    if (ptInStackPanel.Y < top)
+                    {
+                        return Math.Max(0, i);
+                    }
+                }
+                catch { }
+            }
+
+            return _lines.Count - 1;
+        }
+
+        private void ScrollViewer_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            try
+            {
+                // Don't intercept if clicking checkbox
+                if (IsInsideCheckBox(e.OriginalSource as DependencyObject)) return;
+
+                Point pt = e.GetPosition(_stackPanel);
+                int fromSource = GetLineIndexFromSource(e.OriginalSource as DependencyObject);
+                _dragStartLine = fromSource >= 0 ? fromSource : GetLineAtPoint(pt);
+                _dragStartPoint = pt;
+                _isMouseDragging = false;
+
+                // If user clicks outside current selection, clear existing selection
+                if (_selectionStartLine >= 0 && _selectionEndLine >= 0)
+                {
+                    int min = Math.Min(_selectionStartLine, _selectionEndLine);
+                    int max = Math.Max(_selectionStartLine, _selectionEndLine);
+                    if (_dragStartLine < min || _dragStartLine > max)
+                    {
+                        ClearSelection();
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private void ScrollViewer_PreviewMouseMove(object sender, MouseEventArgs e)
+        {
+            try
+            {
+                if (e.LeftButton != MouseButtonState.Pressed || _dragStartLine < 0) return;
+
+                Point currentPt = e.GetPosition(_stackPanel);
+                double deltaY = Math.Abs(currentPt.Y - _dragStartPoint.Y);
+                double deltaX = Math.Abs(currentPt.X - _dragStartPoint.X);
+
+                int currentLine = GetLineAtPoint(currentPt);
+                if (currentLine >= 0 && (currentLine != _dragStartLine || deltaY > 8 || deltaX > 8 || _isMouseDragging))
+                {
+                    if (!_isMouseDragging && (currentLine != _dragStartLine || deltaY > 5 || deltaX > 10))
+                    {
+                        _isMouseDragging = true;
+                        if (!object.ReferenceEquals(Mouse.Captured, _scrollViewer))
+                        {
+                            Mouse.Capture(_scrollViewer, CaptureMode.SubTree);
+                        }
+                    }
+
+                    if (_isMouseDragging)
+                    {
+                        _selectionStartLine = _dragStartLine;
+                        _selectionEndLine = currentLine;
+                        _isAllSelected = false;
+
+                        UpdateSelectionHighlight();
+                        e.Handled = true;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError("ScrollViewer_PreviewMouseMove", ex);
+            }
+        }
+
+        private void ScrollViewer_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            try
+            {
+                if (_scrollViewer.IsMouseCaptured)
+                {
+                    _scrollViewer.ReleaseMouseCapture();
+                }
+
+                if (_isMouseDragging)
+                {
+                    _isMouseDragging = false;
+                    _dragStartLine = -1;
+
+                    if (_selectionStartLine >= 0 && _selectionEndLine >= 0 && _selectionStartLine != _selectionEndLine)
+                    {
+                        // Multi-line selection established! Keep highlight!
+                        UpdateSelectionHighlight();
+                        e.Handled = true;
+                        return;
+                    }
+                }
+
+                _dragStartLine = -1;
+            }
+            catch { }
+        }
+
+        private void ScrollViewer_PreviewMouseRightButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            try
+            {
+                Point pt = e.GetPosition(_stackPanel);
+                int fromSource = GetLineIndexFromSource(e.OriginalSource as DependencyObject);
+                int line = fromSource >= 0 ? fromSource : GetLineAtPoint(pt);
+
+                // If not clicking inside an existing multi-line selection, clear and activate
+                if (_selectionStartLine >= 0 && _selectionEndLine >= 0)
+                {
+                    int min = Math.Min(_selectionStartLine, _selectionEndLine);
+                    int max = Math.Max(_selectionStartLine, _selectionEndLine);
+                    if (line < min || line > max)
+                    {
+                        ClearSelection();
+                        if (line >= 0 && line < _lines.Count)
+                        {
+                            ActivateLine(line);
+                        }
+                    }
+                }
+                else if (line >= 0 && line < _lines.Count && line != _activeLineIndex)
+                {
+                    ActivateLine(line);
+                }
+
+                TextBox? tb = (_activeLineIndex >= 0 && _activeLineIndex < _lines.Count) 
+                    ? _lines[_activeLineIndex].EditBox 
+                    : null;
+
+                var menu = CreateEditorContextMenu(line >= 0 ? line : 0, tb);
+                menu.PlacementTarget = _scrollViewer;
+                menu.IsOpen = true;
+                e.Handled = true;
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError("ScrollViewer_PreviewMouseRightButtonUp", ex);
+            }
+        }
+
+        // ==========================================
+        // DOCUMENT CONTENT & LOAD
+        // ==========================================
 
         public string GetFullDocumentText()
         {
@@ -105,6 +449,8 @@ namespace ClassicStickyNotes.Services
             {
                 _activeLineIndex = -1;
                 ClearSelection();
+                _undoStack.Clear();
+                _redoStack.Clear();
                 _lines.Clear();
                 _stackPanel.Children.Clear();
 
@@ -124,6 +470,8 @@ namespace ClassicStickyNotes.Services
                 {
                     ActivateLine(0, 0);
                 }
+
+                PushSnapshot();
             }
             catch (Exception ex)
             {
@@ -192,7 +540,7 @@ namespace ClassicStickyNotes.Services
         }
 
         // ==========================================
-        // UI REBUILD & LINE RENDERING
+        // UI REBUILD & LINE ACTIVATION
         // ==========================================
 
         private void RebuildUI()
@@ -234,6 +582,9 @@ namespace ClassicStickyNotes.Services
                         {
                             item.RawText = tb.Text;
                             StyleActiveEditBox(tb, tb.Text);
+                            _isTypingDirty = true;
+                            _typingSnapshotTimer.Stop();
+                            _typingSnapshotTimer.Start();
                             NotifyChanged();
                         }
                         catch { }
@@ -241,7 +592,7 @@ namespace ClassicStickyNotes.Services
 
                     tb.ContextMenuOpening += (s, e) =>
                     {
-                        tb.ContextMenu = CreateLineContextMenu(index, tb);
+                        tb.ContextMenu = CreateEditorContextMenu(index, tb);
                     };
 
                     item.EditBox = tb;
@@ -257,37 +608,10 @@ namespace ClassicStickyNotes.Services
                     var container = new Border
                     {
                         Background = Brushes.Transparent,
-                        CornerRadius = new CornerRadius(3),
+                        CornerRadius = new CornerRadius(4),
                         Padding = new Thickness(2, 1, 2, 1),
                         Margin = new Thickness(0, 1, 0, 1),
                         Child = grid
-                    };
-
-                    // Handle mouse selection across lines
-                    container.MouseLeftButtonDown += (s, e) =>
-                    {
-                        _mouseDragStartLine = index;
-                        if (index != _activeLineIndex)
-                        {
-                            ClearSelection();
-                            ActivateLine(index);
-                        }
-                    };
-
-                    container.MouseMove += (s, e) =>
-                    {
-                        if (e.LeftButton == MouseButtonState.Pressed && _mouseDragStartLine >= 0 && _mouseDragStartLine != index)
-                        {
-                            _selectionStartLine = _mouseDragStartLine;
-                            _selectionEndLine = index;
-                            _isAllSelected = false;
-                            UpdateSelectionHighlight();
-                        }
-                    };
-
-                    container.MouseLeftButtonUp += (s, e) =>
-                    {
-                        _mouseDragStartLine = -1;
                     };
 
                     item.Container = container;
@@ -390,6 +714,7 @@ namespace ClassicStickyNotes.Services
                 };
                 spacer.MouseLeftButtonDown += (s, e) =>
                 {
+                    if (_isMouseDragging) return;
                     e.Handled = true;
                     ClearSelection();
                     ActivateLine(index, 0);
@@ -410,6 +735,7 @@ namespace ClassicStickyNotes.Services
                 };
                 lineBorder.MouseLeftButtonDown += (s, e) =>
                 {
+                    if (_isMouseDragging) return;
                     e.Handled = true;
                     ClearSelection();
                     ActivateLine(index, raw.Length);
@@ -448,6 +774,7 @@ namespace ClassicStickyNotes.Services
                     AppendInlineFormatting(tb.Inlines, headingText, Theme, size);
                     tb.MouseLeftButtonDown += (s, e) =>
                     {
+                        if (_isMouseDragging) return;
                         e.Handled = true;
                         ClearSelection();
                         ActivateLine(index);
@@ -474,10 +801,11 @@ namespace ClassicStickyNotes.Services
                     Cursor = Cursors.Hand
                 };
 
-                // Clicking the checkbox toggles without activating the edit box!
+                // Checkbox toggle records undo snapshot!
                 cb.Click += (s, e) =>
                 {
                     e.Handled = true;
+                    PushSnapshot();
                     bool newChecked = cb.IsChecked == true;
                     item.RawText = Regex.Replace(item.RawText, @"(\[\s*)[ xX](\s*\])", newChecked ? "[x]" : "[ ]");
                     RenderInactiveLine(item, index);
@@ -512,6 +840,7 @@ namespace ClassicStickyNotes.Services
 
                 dock.MouseLeftButtonDown += (s, e) =>
                 {
+                    if (_isMouseDragging) return;
                     if (IsInsideCheckBox(e.OriginalSource as DependencyObject)) return;
                     e.Handled = true;
                     ClearSelection();
@@ -556,6 +885,7 @@ namespace ClassicStickyNotes.Services
 
                 dock.MouseLeftButtonDown += (s, e) =>
                 {
+                    if (_isMouseDragging) return;
                     e.Handled = true;
                     ClearSelection();
                     ActivateLine(index);
@@ -601,6 +931,7 @@ namespace ClassicStickyNotes.Services
 
                 dock.MouseLeftButtonDown += (s, e) =>
                 {
+                    if (_isMouseDragging) return;
                     e.Handled = true;
                     ClearSelection();
                     ActivateLine(index);
@@ -637,6 +968,7 @@ namespace ClassicStickyNotes.Services
 
                 border.MouseLeftButtonDown += (s, e) =>
                 {
+                    if (_isMouseDragging) return;
                     e.Handled = true;
                     ClearSelection();
                     ActivateLine(index);
@@ -660,6 +992,7 @@ namespace ClassicStickyNotes.Services
 
             defaultTb.MouseLeftButtonDown += (s, e) =>
             {
+                if (_isMouseDragging) return;
                 e.Handled = true;
                 ClearSelection();
                 ActivateLine(index);
@@ -803,7 +1136,28 @@ namespace ClassicStickyNotes.Services
         {
             try
             {
-                // 1. SELECT ALL (Ctrl+A): Selects entire document!
+                // 1. UNDO (Ctrl+Z) & REDO (Ctrl+Y / Ctrl+Shift+Z)
+                if (e.Key == Key.Z && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
+                {
+                    e.Handled = true;
+                    if ((Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift)
+                    {
+                        Redo();
+                    }
+                    else
+                    {
+                        Undo();
+                    }
+                    return;
+                }
+                if (e.Key == Key.Y && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
+                {
+                    e.Handled = true;
+                    Redo();
+                    return;
+                }
+
+                // 2. SELECT ALL (Ctrl+A): Selects entire document!
                 if (e.Key == Key.A && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
                 {
                     e.Handled = true;
@@ -811,7 +1165,7 @@ namespace ClassicStickyNotes.Services
                     return;
                 }
 
-                // 2. COPY (Ctrl+C): Copies whole document or selected lines!
+                // 3. COPY (Ctrl+C) & CUT (Ctrl+X)
                 if (e.Key == Key.C && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
                 {
                     if (_isAllSelected || (_selectionStartLine >= 0 && _selectionEndLine >= 0))
@@ -821,11 +1175,34 @@ namespace ClassicStickyNotes.Services
                         return;
                     }
                 }
+                if (e.Key == Key.X && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
+                {
+                    if (_isAllSelected || (_selectionStartLine >= 0 && _selectionEndLine >= 0 && _selectionStartLine != _selectionEndLine))
+                    {
+                        e.Handled = true;
+                        PushSnapshot();
+                        Clipboard.SetText(GetSelectedText());
+                        DeleteSelectedLines();
+                        return;
+                    }
+                }
 
-                // 3. MULTI-LINE PASTE (Ctrl+V): Pastes any number of lines!
+                // ESC: Clear multi-line selection
+                if (e.Key == Key.Escape)
+                {
+                    if (_isAllSelected || _selectionStartLine >= 0)
+                    {
+                        e.Handled = true;
+                        ClearSelection();
+                        return;
+                    }
+                }
+
+                // 4. MULTI-LINE PASTE (Ctrl+V): Pastes any number of lines!
                 if (e.Key == Key.V && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
                 {
                     e.Handled = true;
+                    PushSnapshot();
                     HandlePaste(lineIdx, tb);
                     return;
                 }
@@ -836,42 +1213,46 @@ namespace ClassicStickyNotes.Services
                     if (e.Key == Key.Back || e.Key == Key.Delete)
                     {
                         e.Handled = true;
+                        PushSnapshot();
                         DeleteSelectedLines();
                         return;
                     }
                 }
 
-                // 4. ENTER: Line break or smart list continuation
+                // 5. ENTER: Line break or smart list continuation
                 if (e.Key == Key.Enter && Keyboard.Modifiers == ModifierKeys.None)
                 {
                     e.Handled = true;
+                    PushSnapshot();
                     HandleEnter(lineIdx, tb);
                     return;
                 }
 
-                // 5. BACKSPACE at position 0: Merge with previous line
+                // 6. BACKSPACE at position 0: Merge with previous line
                 if (e.Key == Key.Back && Keyboard.Modifiers == ModifierKeys.None)
                 {
                     if (tb.SelectionLength == 0 && tb.CaretIndex == 0 && lineIdx > 0)
                     {
                         e.Handled = true;
+                        PushSnapshot();
                         HandleBackspaceAtStart(lineIdx, tb);
                         return;
                     }
                 }
 
-                // 6. DELETE at end: Merge with next line
+                // 7. DELETE at end: Merge with next line
                 if (e.Key == Key.Delete && Keyboard.Modifiers == ModifierKeys.None)
                 {
                     if (tb.SelectionLength == 0 && tb.CaretIndex == tb.Text.Length && lineIdx < _lines.Count - 1)
                     {
                         e.Handled = true;
+                        PushSnapshot();
                         HandleDeleteAtEnd(lineIdx, tb);
                         return;
                     }
                 }
 
-                // 7. UP ARROW: Navigate to previous line
+                // 8. UP ARROW: Navigate to previous line or extend selection
                 if (e.Key == Key.Up && (Keyboard.Modifiers == ModifierKeys.None || Keyboard.Modifiers == ModifierKeys.Shift))
                 {
                     int visualLine = tb.GetLineIndexFromCharacterIndex(tb.CaretIndex);
@@ -894,7 +1275,7 @@ namespace ClassicStickyNotes.Services
                     }
                 }
 
-                // 8. DOWN ARROW: Navigate to next line
+                // 9. DOWN ARROW: Navigate to next line or extend selection
                 if (e.Key == Key.Down && (Keyboard.Modifiers == ModifierKeys.None || Keyboard.Modifiers == ModifierKeys.Shift))
                 {
                     int visualLine = tb.GetLineIndexFromCharacterIndex(tb.CaretIndex);
@@ -917,24 +1298,27 @@ namespace ClassicStickyNotes.Services
                     }
                 }
 
-                // 9. Markdown shortcuts (Ctrl+B, Ctrl+I, Ctrl+K)
+                // 10. Markdown shortcuts (Ctrl+B, Ctrl+I, Ctrl+K)
                 if ((Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
                 {
                     if (e.Key == Key.B)
                     {
                         e.Handled = true;
+                        PushSnapshot();
                         WrapSelection(tb, "**", "**");
                         return;
                     }
                     if (e.Key == Key.I)
                     {
                         e.Handled = true;
+                        PushSnapshot();
                         WrapSelection(tb, "*", "*");
                         return;
                     }
                     if (e.Key == Key.K)
                     {
                         e.Handled = true;
+                        PushSnapshot();
                         WrapSelection(tb, "[", "](https://)");
                         return;
                     }
@@ -946,13 +1330,34 @@ namespace ClassicStickyNotes.Services
             }
         }
 
-        private void HandlePaste(int lineIdx, TextBox tb)
+        private void HandlePaste(int lineIdx, TextBox? tb)
         {
             try
             {
                 if (!Clipboard.ContainsText()) return;
                 string pasteText = Clipboard.GetText();
                 if (string.IsNullOrEmpty(pasteText)) return;
+
+                if (tb == null)
+                {
+                    string[] pLines = pasteText.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n');
+                    lineIdx = Math.Clamp(lineIdx, 0, Math.Max(0, _lines.Count - 1));
+
+                    if (_lines.Count == 0)
+                    {
+                        foreach (var l in pLines) _lines.Add(new DocumentLine { RawText = l });
+                    }
+                    else
+                    {
+                        _lines.InsertRange(lineIdx + 1, pLines.Select(l => new DocumentLine { RawText = l }));
+                    }
+
+                    ClearSelection();
+                    RebuildUI();
+                    ActivateLine(lineIdx + pLines.Length, 0);
+                    NotifyChanged();
+                    return;
+                }
 
                 // Single line paste: standard TextBox insert
                 if (!pasteText.Contains("\r") && !pasteText.Contains("\n"))
@@ -1173,6 +1578,7 @@ namespace ClassicStickyNotes.Services
                 _isAllSelected = false;
                 _selectionStartLine = -1;
                 _selectionEndLine = -1;
+                _dragStartLine = -1;
                 UpdateSelectionHighlight();
             }
         }
@@ -1250,7 +1656,7 @@ namespace ClassicStickyNotes.Services
             }
         }
 
-        private ContextMenu CreateLineContextMenu(int lineIdx, TextBox tb)
+        public ContextMenu CreateEditorContextMenu(int lineIdx, TextBox? tb)
         {
             bool isDark = Theme.Name == "Charcoal";
             var menu = new ContextMenu
@@ -1258,39 +1664,102 @@ namespace ClassicStickyNotes.Services
                 Background = isDark ? new SolidColorBrush(Color.FromRgb(30, 41, 59)) : Brushes.White,
                 BorderBrush = isDark ? new SolidColorBrush(Color.FromRgb(51, 65, 85)) : new SolidColorBrush(Color.FromRgb(226, 232, 240)),
                 BorderThickness = new Thickness(1),
-                Padding = new Thickness(6)
+                Padding = new Thickness(4)
             };
 
-            MenuItem CreateItem(string title, Action action)
+            MenuItem CreateItem(string title, string fluentGlyph, string shortcut, Action action, bool isEnabled = true)
             {
                 var item = new MenuItem
                 {
                     Header = title,
-                    Height = 28,
+                    InputGestureText = shortcut,
+                    IsEnabled = isEnabled,
+                    Height = 32,
                     Cursor = Cursors.Hand,
+                    Foreground = isDark ? new SolidColorBrush(Color.FromRgb(241, 245, 249)) : new SolidColorBrush(Color.FromRgb(30, 41, 59)),
                     FontSize = 12,
-                    Foreground = isDark ? new SolidColorBrush(Color.FromRgb(241, 245, 249)) : new SolidColorBrush(Color.FromRgb(30, 41, 59))
+                    Padding = new Thickness(8, 4, 8, 4),
+                    Margin = new Thickness(0, 1, 0, 1)
                 };
+
+                if (!string.IsNullOrEmpty(fluentGlyph))
+                {
+                    bool isText = fluentGlyph == "B" || fluentGlyph == "I";
+                    var iconTb = new TextBlock
+                    {
+                        Text = fluentGlyph,
+                        FontFamily = isText ? new FontFamily("Segoe UI") : new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets, Segoe UI Symbol"),
+                        FontWeight = fluentGlyph == "B" ? FontWeights.Bold : FontWeights.Normal,
+                        FontStyle = fluentGlyph == "I" ? FontStyles.Italic : FontStyles.Normal,
+                        FontSize = 12,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        Foreground = isDark ? new SolidColorBrush(Color.FromRgb(203, 213, 225)) : new SolidColorBrush(Color.FromRgb(100, 116, 139))
+                    };
+                    item.Icon = iconTb;
+                }
+
                 item.Click += (s, e) => action();
                 return item;
             }
 
-            menu.Items.Add(CreateItem("✂️  Cut (Ctrl+X)", () => tb.Cut()));
-            menu.Items.Add(CreateItem("📋  Copy (Ctrl+C)", () =>
+            bool hasSelection = _isAllSelected || (_selectionStartLine >= 0 && _selectionEndLine >= 0 && _selectionStartLine != _selectionEndLine) || (tb != null && tb.SelectionLength > 0);
+
+            menu.Items.Add(CreateItem("Undo", "\xE7A7", "Ctrl+Z", () => Undo(), _undoStack.Count > 0));
+            menu.Items.Add(CreateItem("Redo", "\xE7A6", "Ctrl+Y", () => Redo(), _redoStack.Count > 0));
+            menu.Items.Add(new Separator());
+
+            menu.Items.Add(CreateItem("Cut", "\xE8C6", "Ctrl+X", () =>
+            {
+                PushSnapshot();
+                if (_isAllSelected || (_selectionStartLine >= 0 && _selectionEndLine >= 0 && _selectionStartLine != _selectionEndLine))
+                {
+                    Clipboard.SetText(GetSelectedText());
+                    DeleteSelectedLines();
+                }
+                else if (tb != null)
+                {
+                    tb.Cut();
+                }
+            }, hasSelection));
+
+            menu.Items.Add(CreateItem("Copy", "\xE8C8", "Ctrl+C", () =>
             {
                 if (_isAllSelected || (_selectionStartLine >= 0 && _selectionEndLine >= 0))
                     Clipboard.SetText(GetSelectedText());
-                else
+                else if (tb != null && tb.SelectionLength > 0)
                     tb.Copy();
+                else
+                    Clipboard.SetText(GetFullDocumentText());
             }));
-            menu.Items.Add(CreateItem("📥  Paste (Ctrl+V)", () => HandlePaste(lineIdx, tb)));
-            menu.Items.Add(CreateItem("🔲  Select All (Ctrl+A)", () => SelectAll()));
 
-            menu.Items.Add(new Separator { Margin = new Thickness(4) });
+            menu.Items.Add(CreateItem("Paste", "\xE77F", "Ctrl+V", () =>
+            {
+                PushSnapshot();
+                HandlePaste(lineIdx >= 0 ? lineIdx : Math.Max(0, _lines.Count - 1), tb);
+            }));
 
-            menu.Items.Add(CreateItem("𝗕  Bold (Ctrl+B)", () => WrapSelection(tb, "**", "**")));
-            menu.Items.Add(CreateItem("𝘐  Italic (Ctrl+I)", () => WrapSelection(tb, "*", "*")));
-            menu.Items.Add(CreateItem("🔗  Link (Ctrl+K)", () => WrapSelection(tb, "[", "](https://)")));
+            menu.Items.Add(CreateItem("Select All", "\xE8B3", "Ctrl+A", () => SelectAll()));
+
+            menu.Items.Add(new Separator());
+
+            menu.Items.Add(CreateItem("Bold", "B", "Ctrl+B", () =>
+            {
+                PushSnapshot();
+                if (tb != null) WrapSelection(tb, "**", "**");
+            }, tb != null));
+
+            menu.Items.Add(CreateItem("Italic", "I", "Ctrl+I", () =>
+            {
+                PushSnapshot();
+                if (tb != null) WrapSelection(tb, "*", "*");
+            }, tb != null));
+
+            menu.Items.Add(CreateItem("Insert Link", "\xE71B", "Ctrl+K", () =>
+            {
+                PushSnapshot();
+                if (tb != null) WrapSelection(tb, "[", "](https://)");
+            }, tb != null));
 
             return menu;
         }
