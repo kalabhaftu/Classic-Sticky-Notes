@@ -11,6 +11,7 @@ namespace ClassicStickyNotes.Models
         public double FontSize { get; set; } = 15.0;
         public bool IsPinned { get; set; } = false;
         public bool IsPreview { get; set; } = false;
+        public bool IsSpellCheckEnabled { get; set; } = true;
         public double Left { get; set; } = 200;
         public double Top { get; set; } = 200;
         public double Width { get; set; } = 340;

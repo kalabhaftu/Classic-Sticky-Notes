@@ -67,7 +67,8 @@ namespace ClassicStickyNotes
             _editor = new LiveMarkdownEditor(EditorScrollViewer, LinesStackPanel, theme)
             {
                 FontFamilyName = _note.FontFamily,
-                BaseFontSize = _note.FontSize
+                BaseFontSize = _note.FontSize,
+                IsSpellCheckEnabled = _note.IsSpellCheckEnabled
             };
             _editor.DocumentChanged += OnDocumentChanged;
             _editor.LoadDocument(_note.Content);
@@ -131,13 +132,6 @@ namespace ClassicStickyNotes
 
             TxtFooterStats.Foreground = theme.SubduedTextBrush;
 
-            // Update Dialog theme
-            bool isDark = colorName == "Charcoal";
-            DialogCard.Background = isDark ? new SolidColorBrush(Color.FromRgb(30, 41, 59)) : Brushes.White;
-            DialogCard.BorderBrush = isDark ? new SolidColorBrush(Color.FromRgb(51, 65, 85)) : new SolidColorBrush(Color.FromRgb(226, 232, 240));
-            TxtDialogTitle.Foreground = isDark ? Brushes.White : new SolidColorBrush(Color.FromRgb(30, 41, 59));
-            TxtDialogMessage.Foreground = isDark ? new SolidColorBrush(Color.FromRgb(203, 213, 225)) : new SolidColorBrush(Color.FromRgb(71, 85, 105));
-
             _editor?.ApplyThemeAndFont(theme, _note.FontFamily, _note.FontSize);
         }
 
@@ -173,11 +167,10 @@ namespace ClassicStickyNotes
 
         private ContextMenu CreateModernMenu()
         {
-            bool isDark = _note.ColorName == "Charcoal";
             var menu = new ContextMenu
             {
-                Background = isDark ? new SolidColorBrush(Color.FromRgb(30, 41, 59)) : Brushes.White,
-                BorderBrush = isDark ? new SolidColorBrush(Color.FromRgb(51, 65, 85)) : new SolidColorBrush(Color.FromRgb(226, 232, 240)),
+                Background = SystemThemeHelper.MenuBackground,
+                BorderBrush = SystemThemeHelper.MenuBorderBrush,
                 BorderThickness = new Thickness(1),
                 Padding = new Thickness(6),
                 ClipToBounds = false
@@ -186,7 +179,7 @@ namespace ClassicStickyNotes
             var shadow = new System.Windows.Media.Effects.DropShadowEffect
             {
                 BlurRadius = 16,
-                Opacity = 0.22,
+                Opacity = SystemThemeHelper.IsDarkTheme() ? 0.35 : 0.18,
                 ShadowDepth = 4,
                 Direction = 270,
                 Color = Colors.Black
@@ -205,7 +198,7 @@ namespace ClassicStickyNotes
             bool isDanger = false, 
             string shortcut = "")
         {
-            bool isDark = _note.ColorName == "Charcoal";
+            bool isDark = SystemThemeHelper.IsDarkTheme();
             var item = new MenuItem
             {
                 Header = title,
@@ -214,7 +207,7 @@ namespace ClassicStickyNotes
                 InputGestureText = shortcut,
                 Foreground = isDanger 
                     ? new SolidColorBrush(Color.FromRgb(239, 68, 68)) 
-                    : (isDark ? new SolidColorBrush(Color.FromRgb(241, 245, 249)) : new SolidColorBrush(Color.FromRgb(30, 41, 59))),
+                    : SystemThemeHelper.MenuForeground,
                 FontSize = 12,
                 Padding = new Thickness(8, 4, 8, 4),
                 Margin = new Thickness(0, 1, 0, 1)
@@ -235,7 +228,7 @@ namespace ClassicStickyNotes
                     HorizontalAlignment = HorizontalAlignment.Center,
                     Foreground = isDanger 
                         ? new SolidColorBrush(Color.FromRgb(239, 68, 68)) 
-                        : (isDark ? new SolidColorBrush(Color.FromRgb(203, 213, 225)) : new SolidColorBrush(Color.FromRgb(100, 116, 139)))
+                        : SystemThemeHelper.MenuSubduedForeground
                 };
                 item.Icon = iconTb;
             }
@@ -267,12 +260,11 @@ namespace ClassicStickyNotes
 
         private Separator CreateModernSeparator()
         {
-            bool isDark = _note.ColorName == "Charcoal";
             return new Separator
             {
                 Height = 1,
                 Margin = new Thickness(4, 4, 4, 4),
-                Background = isDark ? new SolidColorBrush(Color.FromRgb(51, 65, 85)) : new SolidColorBrush(Color.FromRgb(226, 232, 240))
+                Background = SystemThemeHelper.MenuSeparatorBrush
             };
         }
 
@@ -286,7 +278,7 @@ namespace ClassicStickyNotes
                 IsEnabled = false,
                 FontSize = 10,
                 FontWeight = FontWeights.Bold,
-                Foreground = new SolidColorBrush(Color.FromRgb(148, 163, 184)),
+                Foreground = SystemThemeHelper.MenuSubduedForeground,
                 Padding = new Thickness(8, 2, 8, 4)
             };
             menu.Items.Add(headerItem);
@@ -336,7 +328,7 @@ namespace ClassicStickyNotes
                 IsEnabled = false,
                 FontSize = 10,
                 FontWeight = FontWeights.Bold,
-                Foreground = new SolidColorBrush(Color.FromRgb(148, 163, 184)),
+                Foreground = SystemThemeHelper.MenuSubduedForeground,
                 Padding = new Thickness(8, 2, 8, 4)
             });
 
@@ -365,7 +357,7 @@ namespace ClassicStickyNotes
                 IsEnabled = false,
                 FontSize = 10,
                 FontWeight = FontWeights.Bold,
-                Foreground = new SolidColorBrush(Color.FromRgb(148, 163, 184)),
+                Foreground = SystemThemeHelper.MenuSubduedForeground,
                 Padding = new Thickness(8, 2, 8, 4)
             });
 
@@ -396,6 +388,22 @@ namespace ClassicStickyNotes
             menu.Items.Add(CreateModernMenuItem("Undo", "\xE7A7", null, () => _editor?.Undo(), shortcut: "Ctrl+Z"));
             menu.Items.Add(CreateModernMenuItem("Redo", "\xE7A6", null, () => _editor?.Redo(), shortcut: "Ctrl+Y"));
             menu.Items.Add(CreateModernSeparator());
+
+            menu.Items.Add(CreateModernMenuItem(
+                _note.IsSpellCheckEnabled ? "Spell Checker: ON" : "Spell Checker: OFF",
+                "\xE8D2",
+                null,
+                () => {
+                    _note.IsSpellCheckEnabled = !_note.IsSpellCheckEnabled;
+                    if (_editor != null)
+                    {
+                        _editor.IsSpellCheckEnabled = _note.IsSpellCheckEnabled;
+                    }
+                    PerformSave();
+                    TxtFooterStats.Text = _note.IsSpellCheckEnabled ? "Spell Checker enabled" : "Spell Checker disabled";
+                },
+                isChecked: _note.IsSpellCheckEnabled
+            ));
 
             menu.Items.Add(CreateModernMenuItem("Export to Markdown (.md)...", "\xE74E", null, () => ExportToMarkdown()));
             menu.Items.Add(CreateModernMenuItem("Copy All Text", "\xE8C8", null, () => {
@@ -477,9 +485,21 @@ namespace ClassicStickyNotes
             bool isDanger = false, 
             bool isAlertOnly = false)
         {
+            DialogCard.Background = SystemThemeHelper.DialogBackground;
+            DialogCard.BorderBrush = SystemThemeHelper.DialogBorderBrush;
+            TxtDialogTitle.Foreground = SystemThemeHelper.DialogTitleForeground;
+            TxtDialogMessage.Foreground = SystemThemeHelper.DialogMessageForeground;
+
+            BtnDialogCancel.Background = SystemThemeHelper.DialogGhostBtnBackground;
+            BtnDialogCancel.BorderBrush = SystemThemeHelper.DialogGhostBtnBorder;
+            BtnDialogCancel.Foreground = SystemThemeHelper.DialogGhostBtnForeground;
+
             TxtDialogTitle.Text = title;
             TxtDialogMessage.Text = message;
             TxtDialogIcon.Text = icon;
+            TxtDialogIcon.Foreground = isDanger 
+                ? new SolidColorBrush(Color.FromRgb(239, 68, 68)) 
+                : SystemThemeHelper.DialogTitleForeground;
             BtnDialogConfirm.Content = confirmText;
             _dialogConfirmAction = onConfirm;
 
@@ -641,7 +661,8 @@ namespace ClassicStickyNotes
                 ColorName = _note.ColorName,
                 FontFamily = _note.FontFamily,
                 FontSize = _note.FontSize,
-                IsPinned = _note.IsPinned
+                IsPinned = _note.IsPinned,
+                IsSpellCheckEnabled = _note.IsSpellCheckEnabled
             };
             NoteStorageService.SaveSingleNote(newNote);
             var win = new NoteWindow(newNote);

@@ -9,6 +9,7 @@ using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
+using ClassicStickyNotes.Helpers;
 
 namespace ClassicStickyNotes.Services
 {
@@ -58,6 +59,23 @@ namespace ClassicStickyNotes.Services
         public NoteTheme Theme { get; set; }
         public string FontFamilyName { get; set; } = "Segoe UI";
         public double BaseFontSize { get; set; } = 15.0;
+
+        private bool _isSpellCheckEnabled = true;
+        public bool IsSpellCheckEnabled
+        {
+            get => _isSpellCheckEnabled;
+            set
+            {
+                _isSpellCheckEnabled = value;
+                for (int i = 0; i < _lines.Count; i++)
+                {
+                    if (_lines[i].EditBox != null)
+                    {
+                        _lines[i].EditBox!.SpellCheck.IsEnabled = value;
+                    }
+                }
+            }
+        }
 
         public event Action? DocumentChanged;
 
@@ -572,6 +590,7 @@ namespace ClassicStickyNotes.Services
                         SelectionBrush = Theme.SelectionBrush,
                         Visibility = (index == _activeLineIndex) ? Visibility.Visible : Visibility.Collapsed
                     };
+                    tb.SpellCheck.IsEnabled = _isSpellCheckEnabled;
 
                     StyleActiveEditBox(tb, item.RawText);
 
@@ -1658,11 +1677,11 @@ namespace ClassicStickyNotes.Services
 
         public ContextMenu CreateEditorContextMenu(int lineIdx, TextBox? tb)
         {
-            bool isDark = Theme.Name == "Charcoal";
+            bool isDark = SystemThemeHelper.IsDarkTheme();
             var menu = new ContextMenu
             {
-                Background = isDark ? new SolidColorBrush(Color.FromRgb(30, 41, 59)) : Brushes.White,
-                BorderBrush = isDark ? new SolidColorBrush(Color.FromRgb(51, 65, 85)) : new SolidColorBrush(Color.FromRgb(226, 232, 240)),
+                Background = SystemThemeHelper.MenuBackground,
+                BorderBrush = SystemThemeHelper.MenuBorderBrush,
                 BorderThickness = new Thickness(1),
                 Padding = new Thickness(4)
             };
@@ -1703,11 +1722,59 @@ namespace ClassicStickyNotes.Services
                 return item;
             }
 
+            // 1. Spell Check Suggestions (Native Windows Spell Check)
+            if (_isSpellCheckEnabled && tb != null)
+            {
+                SpellingError? error = null;
+                try
+                {
+                    Point pt = Mouse.GetPosition(tb);
+                    int charIndex = tb.GetCharacterIndexFromPoint(pt, false);
+                    if (charIndex >= 0)
+                    {
+                        error = tb.GetSpellingError(charIndex);
+                    }
+                    if (error == null && tb.CaretIndex >= 0)
+                    {
+                        error = tb.GetSpellingError(tb.CaretIndex);
+                    }
+                }
+                catch { }
+
+                if (error != null)
+                {
+                    bool hasSug = false;
+                    foreach (string suggestion in error.Suggestions)
+                    {
+                        hasSug = true;
+                        string sug = suggestion;
+                        var sugItem = CreateItem(sug, "\xE73E", "", () =>
+                        {
+                            PushSnapshot();
+                            error.Correct(sug);
+                            _lines[lineIdx].RawText = tb.Text;
+                            NotifyChanged();
+                        });
+                        sugItem.FontWeight = FontWeights.SemiBold;
+                        menu.Items.Add(sugItem);
+                    }
+
+                    if (hasSug)
+                    {
+                        menu.Items.Add(CreateItem("Ignore All", "\xE711", "", () =>
+                        {
+                            error.IgnoreAll();
+                        }));
+                        menu.Items.Add(new Separator { Background = SystemThemeHelper.MenuSeparatorBrush, Height = 1, Margin = new Thickness(4) });
+                    }
+                }
+            }
+
             bool hasSelection = _isAllSelected || (_selectionStartLine >= 0 && _selectionEndLine >= 0 && _selectionStartLine != _selectionEndLine) || (tb != null && tb.SelectionLength > 0);
 
             menu.Items.Add(CreateItem("Undo", "\xE7A7", "Ctrl+Z", () => Undo(), _undoStack.Count > 0));
             menu.Items.Add(CreateItem("Redo", "\xE7A6", "Ctrl+Y", () => Redo(), _redoStack.Count > 0));
-            menu.Items.Add(new Separator());
+            menu.Items.Add(new Separator { Background = SystemThemeHelper.MenuSeparatorBrush, Height = 1, Margin = new Thickness(4) });
 
             menu.Items.Add(CreateItem("Cut", "\xE8C6", "Ctrl+X", () =>
             {
@@ -1741,7 +1808,7 @@ namespace ClassicStickyNotes.Services
 
             menu.Items.Add(CreateItem("Select All", "\xE8B3", "Ctrl+A", () => SelectAll()));
 
-            menu.Items.Add(new Separator());
+            menu.Items.Add(new Separator { Background = SystemThemeHelper.MenuSeparatorBrush, Height = 1, Margin = new Thickness(4) });
 
             menu.Items.Add(CreateItem("Bold", "B", "Ctrl+B", () =>
             {
